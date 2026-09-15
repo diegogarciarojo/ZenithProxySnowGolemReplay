@@ -43,6 +43,13 @@ final class DeliveryQueue {
         worker.execute(this::scan);
     }
     private Path jobPath(Path replay) { return replay.resolveSibling(replay.getFileName() + ".delivery.json"); }
+    void notifyStatus(String text) {
+        if (!CONFIG.discordEnabled) return;
+        worker.execute(() -> {
+            try { send(channel(), text); }
+            catch (Exception e) { LOG.warn("Replay status notification failed ({})", e.getClass().getSimpleName()); }
+        });
+    }
     private void scan() {
         if (!Files.isDirectory(directory)) return;
         try (var files = Files.list(directory)) {

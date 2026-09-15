@@ -161,6 +161,34 @@ class GolemModuleIntegrationTest {
             assertTrue(files.anyMatch(p -> p.toString().endsWith(".mcpr")));
         }
     }
+    @Test void burstBeyondWriterQueueCapacityDoesNotLosePackets() throws Exception {
+        var recording = new BufferedReplayRecording(Files.createDirectories(root.resolve("burst")));
+        recording.startRecording();
+        var producer = java.util.concurrent.Executors.newSingleThreadExecutor();
+        java.util.concurrent.Future<?> pending;
+        try {
+            synchronized (recording) {
+                pending = producer.submit(() -> {
+                    for (int i = 0; i < 20000; i++) recording.writePacket(System.nanoTime(),
+                        new ClientboundEntityEventPacket(1, EntityEvent.LIVING_HURT), client);
+                });
+                var executor = (java.util.concurrent.ThreadPoolExecutor)field(BufferedReplayRecording.class, "executor").get(recording);
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                while (executor.getQueue().size() < 8192 && System.nanoTime() < deadline) Thread.sleep(10);
+                assertEquals(8192, executor.getQueue().size());
+                assertTrue(recording.healthy());
+                assertFalse(pending.isDone()); // Producer waits instead of discarding packets.
+            }
+            pending.get(20, TimeUnit.SECONDS);
+            recording.close();
+            assertTrue(recording.healthy());
+            Path decoded = root.resolve("burst-packets.txt");
+            new ReplayReader(recording.getReplayFile(), decoded.toFile()).read();
+            assertEquals(20000, Files.readString(decoded).split("LIVING_HURT", -1).length - 1);
+        } finally {
+            producer.shutdownNow(); recording.close();
+        }
+    }
     @Test void testDiskFailureReportsDiskInsteadOfDisabledModule() throws Exception {
         SnowGolemReplayPlugin.CONFIG.minFreeDiskMiB = Long.MAX_VALUE / (1024 * 1024);
         var error = assertThrows(IllegalStateException.class, module::startTest);

@@ -228,7 +228,11 @@ public final class GolemReplayModule extends Module {
     private long preNanos() { return TimeUnit.SECONDS.toNanos(CONFIG.preSeconds); }
     private synchronized void reset(String ending) {
         for (var w : buffer.drain()) finish(w, ending);
-        if (testWindow != null) { finish(testWindow, ending); testWindow = null; }
+        if (testWindow != null) {
+            delivery.notifyStatus("La prueba de golemreplay se interrumpio: " + ending
+                + ". Consulta golemreplay status y el log de ZenithProxy. No se confirma una grabacion completa.");
+            finish(testWindow, ending); testWindow = null;
+        }
         tracked.clear(); session = null; lastCheckpoint = 0;
     }
     private void finish(RollingWindows.Window<BufferedReplayRecording> w, String ending) {
@@ -243,12 +247,20 @@ public final class GolemReplayModule extends Module {
                 if (w.pinned()) {
                     Path output = incidentsDirectory.resolve("golem-" + w.incidents.getFirst().id() + ".mcpr");
                     ReplayFiles.export(file, output, w.incidents, ending, endMs);
+                    if ("MANUAL_TEST".equals(w.incidents.getFirst().confirmation()))
+                        delivery.notifyStatus("Prueba de golemreplay guardada (" + endMs / 1000
+                            + " segundos). Muertes detectadas: " + w.incidents.stream().filter(i -> !"MANUAL_TEST".equals(i.confirmation())).count()
+                            + ". Se ejecutaran las entregas configuradas a Discord y file.kiwi.");
                     delivery.enqueue(output, w.incidents, ending);
                     LOG.info("Saved snow golem evidence: {}", output);
                 }
                 Files.deleteIfExists(file);
                 Files.deleteIfExists(file.getParent());
-            } catch (Exception e) { LOG.error("Replay finalization failed; keeping buffer files for recovery", e); }
+            } catch (Exception e) {
+                LOG.error("Replay finalization failed; keeping buffer files for recovery", e);
+                if (w.pinned()) delivery.notifyStatus("No se pudo finalizar el replay de golemreplay ("
+                    + e.getClass().getSimpleName() + "). Los archivos locales se conservan para diagnostico; revisa el log de ZenithProxy.");
+            }
         });
     }
     public synchronized String status() {

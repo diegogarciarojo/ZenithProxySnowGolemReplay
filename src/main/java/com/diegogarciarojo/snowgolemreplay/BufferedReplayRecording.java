@@ -61,7 +61,16 @@ public class BufferedReplayRecording implements Closeable {
             .setNameFormat("ZenithProxy ReplayMod PacketHandler #%d")
             .setDaemon(true)
             .setUncaughtExceptionHandler((t, e) -> MODULE.get(ReplayMod.class).error("Uncaught exception in thread {}", t.getName(), e))
-            .build(), new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+            .build(), (task, pool) -> {
+                if (pool.isShutdown()) throw new java.util.concurrent.RejectedExecutionException("Replay writer is closed");
+                try {
+                    if (!pool.getQueue().offer(task, 10, TimeUnit.SECONDS))
+                        throw new java.util.concurrent.RejectedExecutionException("Replay disk writer stalled for 10 seconds");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new java.util.concurrent.RejectedExecutionException("Replay writer interrupted", e);
+                }
+            });
     private volatile boolean started = false;
     private volatile boolean closed = false;
     private volatile Throwable writeFailure;
@@ -97,6 +106,7 @@ public class BufferedReplayRecording implements Closeable {
         replayFile.getParentFile().mkdirs();
         fileOutputStream = new FileOutputStream(replayFile);
         zipOutputStream = new ZipOutputStream(fileOutputStream);
+        zipOutputStream.setLevel(java.util.zip.Deflater.BEST_SPEED);
         zipOutputStream.putNextEntry(new ZipEntry("recording.tmcpr"));
         writerStream = new BufferedOutputStream(zipOutputStream);
         if (Proxy.getInstance().isConnected() && Proxy.getInstance().getClient().isOnline()) {
@@ -108,7 +118,9 @@ public class BufferedReplayRecording implements Closeable {
     }
 
     // Start recording while we already have a logged in session
-    private synchronized void lateStartRecording() {
+    private void lateStartRecording() {
+        // Never hold the writer monitor while producing the initial world snapshot.
+        // Large entity/chunk snapshots can exceed the bounded queue capacity.
         writePacket0(0, new ClientboundLoginFinishedPacket(CACHE.getProfileCache().getProfile()), Proxy.getInstance().getClient(), ProtocolState.LOGIN);
         CACHE.getRegistriesCache().getRegistryPackets(
             packet -> writePacket(System.nanoTime(), (MinecraftPacket) packet, Proxy.getInstance().getClient(), ProtocolState.CONFIGURATION),
