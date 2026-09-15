@@ -2,6 +2,7 @@ package com.diegogarciarojo.snowgolemreplay;
 
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.zenith.command.api.*;
+import com.zenith.discord.Embed;
 import static com.zenith.Globals.saveConfigAsync;
 import static com.zenith.command.brigadier.ToggleArgumentType.*;
 import static com.mojang.brigadier.arguments.StringArgumentType.*;
@@ -22,7 +23,6 @@ public final class GolemReplayCommand extends Command {
     @Override public LiteralArgumentBuilder<CommandContext> register() {
         return command("golemreplay")
             .requires(Command::validateAccountOwner)
-            .executes(c -> { c.getSource().getEmbed().title("Snow Golem Replay").description(module.status()); })
             .then(literal("status").executes(c -> { c.getSource().getEmbed().title("Snow Golem Replay").description(module.status()); }))
             .then(literal("golems").executes(c -> { c.getSource().getEmbed().title("Golems cargados (hasta 30)").description(module.loadedGolems()); }))
             .then(argument("toggle", toggle()).executes(c -> {
@@ -74,6 +74,16 @@ public final class GolemReplayCommand extends Command {
                 CONFIG.discordChannelId = id.equals("default") ? "" : id; saveConfigAsync();
                 c.getSource().getEmbed().title("Canal de Discord actualizado");
             })));
+    }
+    @Override public void defaultEmbed(Embed embed) {
+        embed.addField("Enabled", toggleStr(CONFIG.enabled))
+            .addField("Discord / file.kiwi", "Discord: " + toggleStr(CONFIG.discordEnabled)
+                + " | file.kiwi: " + toggleStr(CONFIG.kiwiEnabled))
+            .addField("Replay buffer (seconds)", "Before death: " + CONFIG.preSeconds
+                + " | After death: " + CONFIG.postSeconds + " | Checkpoint: " + CONFIG.checkpointSeconds)
+            .addField("Discord channel", CONFIG.discordChannelId.isEmpty() ? "Zenith default" : CONFIG.discordChannelId)
+            .addField("Watched golems", CONFIG.watchedUuids.isEmpty() ? "All loaded snow golems" : CONFIG.watchedUuids.size() + " UUIDs")
+            .addField("Disk limits (MiB)", "Minimum free: " + CONFIG.minFreeDiskMiB + " | Maximum buffer: " + CONFIG.maxBufferMiB);
     }
     private LiteralArgumentBuilder<CommandContext> numberSetting(String name, int min, int max, java.util.function.IntConsumer setter) {
         return literal(name).then(argument("value", integer(min, max)).executes(c -> {
