@@ -27,7 +27,7 @@ public final class GolemReplayCommand extends Command {
             .then(literal("golems").executes(c -> { c.getSource().getEmbed().title("Golems cargados (hasta 30)").description(module.loadedGolems()); }))
             .then(argument("toggle", toggle()).executes(c -> {
                 CONFIG.enabled = getToggle(c, "toggle"); module.syncEnabledFromConfig(); saveConfigAsync();
-                c.getSource().getEmbed().title("Snow Golem Replay").description(module.status());
+                c.getSource().getEmbed().title("Snow Golem Replay " + toggleStrCaps(CONFIG.enabled));
             }))
             .then(literal("test").executes(c -> {
                 module.startTest(); c.getSource().getEmbed().title("Prueba de 60 segundos solicitada")
@@ -76,7 +76,7 @@ public final class GolemReplayCommand extends Command {
             })));
     }
     @Override public void defaultEmbed(Embed embed) {
-        embed.addField("Enabled", toggleStr(CONFIG.enabled))
+        embed.primaryColor().addField("Enabled", toggleStr(CONFIG.enabled))
             .addField("Discord / file.kiwi", "Discord: " + toggleStr(CONFIG.discordEnabled)
                 + " | file.kiwi: " + toggleStr(CONFIG.kiwiEnabled))
             .addField("Replay buffer (seconds)", "Before death: " + CONFIG.preSeconds
@@ -90,7 +90,7 @@ public final class GolemReplayCommand extends Command {
             synchronized (module) {
                 module.restartBuffer(); setter.accept(getInteger(c, "value")); CONFIG.validate(); saveConfigAsync();
             }
-            c.getSource().getEmbed().title("Configuracion guardada; buffer reiniciado").description(module.status());
+            c.getSource().getEmbed().title("Configuracion guardada; buffer reiniciado");
         }));
     }
 }

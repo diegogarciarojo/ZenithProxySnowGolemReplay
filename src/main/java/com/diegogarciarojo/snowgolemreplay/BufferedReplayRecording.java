@@ -68,6 +68,7 @@ public class BufferedReplayRecording implements Closeable {
     public File getReplayFile() { return replayFile; }
     public long getStartT() { return startT; }
     public boolean healthy() { return writeFailure == null; }
+    public String failureDescription() { return writeFailure == null ? "" : writeFailure.getClass().getSimpleName() + ": " + writeFailure.getMessage(); }
 
     public BufferedReplayRecording(final Path replayDirectory) {
         this.metadata = new ReplayMetadata();

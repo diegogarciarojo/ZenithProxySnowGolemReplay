@@ -144,6 +144,30 @@ class GolemModuleIntegrationTest {
         }
         fail("Manual test replay missing");
     }
+    @Test void manualTestStartsWithEmptySuspendedBufferAndCapturesDeath() throws Exception {
+        module.restartBuffer();
+        field(GolemReplayModule.class, "pauseUntil").setLong(module, System.nanoTime() + TimeUnit.SECONDS.toNanos(60));
+        assertTrue(module.status().contains("active windows=0"));
+        module.startTest();
+        tick(); // A suspended rolling buffer must not reset the independent test.
+        receive(new ClientboundEntityEventPacket(1, EntityEvent.LIVING_DEATH));
+        var test = (RollingWindows.Window<?>)field(GolemReplayModule.class, "testWindow").get(module);
+        assertNotNull(test); assertEquals(2, test.incidents.size());
+        test.deadline = System.nanoTime() - 1;
+        tick();
+        assertNull(field(GolemReplayModule.class, "testWindow").get(module));
+        module.shutdown();
+        try (var files = Files.list(root.resolve("incidents"))) {
+            assertTrue(files.anyMatch(p -> p.toString().endsWith(".mcpr")));
+        }
+    }
+    @Test void testDiskFailureReportsDiskInsteadOfDisabledModule() throws Exception {
+        SnowGolemReplayPlugin.CONFIG.minFreeDiskMiB = Long.MAX_VALUE / (1024 * 1024);
+        var error = assertThrows(IllegalStateException.class, module::startTest);
+        assertTrue(error.getMessage().contains("Free disk:"));
+        assertTrue(module.isEnabled());
+        assertNull(field(GolemReplayModule.class, "testWindow").get(module));
+    }
     @Test void discordConfigurationCommandsUseRealBrigadierAndValidateBounds() throws Exception {
         var dispatcher = new com.mojang.brigadier.CommandDispatcher<com.zenith.command.api.CommandContext>();
         dispatcher.register(new GolemReplayCommand(module).register());

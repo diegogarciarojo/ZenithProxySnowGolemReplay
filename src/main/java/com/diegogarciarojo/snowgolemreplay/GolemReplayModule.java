@@ -75,20 +75,32 @@ public final class GolemReplayModule extends Module {
         if (current == null || !current.isOnline() || current.isInQueue()) return;
         if (session != current) { reset("New connection"); session = current; }
         long now = System.nanoTime();
-        if (now < pauseUntil) return;
+        if (now < pauseUntil) {
+            if (testWindow != null) {
+                if (!testWindow.value.healthy()) {
+                    lastProblem = "Test writer failed: " + testWindow.value.failureDescription();
+                    reset("Recording error: test interrupted");
+                } else if (now >= testWindow.deadline) {
+                    finish(testWindow, "Manual 60-second test completed"); testWindow = null;
+                }
+                for (Entity entity : CACHE.getEntityCache().getEntities().values()) track(entity);
+            }
+            return;
+        }
         try {
             Files.createDirectories(bufferDirectory);
             Files.createDirectories(incidentsDirectory);
             if (now - lastDiskCheck >= TimeUnit.SECONDS.toNanos(1)) {
                 lastDiskCheck = now;
-                if (buffer.windows.stream().anyMatch(w -> !w.value.healthy()) || testWindow != null && !testWindow.value.healthy())
-                    throw new IOException("Replay writer failed; history is incomplete");
+                for (var window : buffer.windows) if (!window.value.healthy())
+                    throw new IOException("Replay writer failed: " + window.value.failureDescription());
+                if (testWindow != null && !testWindow.value.healthy())
+                    throw new IOException("Test writer failed: " + testWindow.value.failureDescription());
                 long bytes;
                 try (var paths = Files.walk(bufferDirectory)) {
                     bytes = paths.filter(Files::isRegularFile).mapToLong(p -> p.toFile().length()).sum();
                 }
-                if (bufferDirectory.toFile().getUsableSpace() < CONFIG.minFreeDiskMiB * 1024L * 1024
-                    || bytes > CONFIG.maxBufferMiB * 1024L * 1024) throw new IOException("Buffer disk limit reached");
+                checkDisk(bytes);
             }
             if (buffer.windows.isEmpty() || now - lastCheckpoint >= TimeUnit.SECONDS.toNanos(CONFIG.checkpointSeconds)) {
                 // Unique directories avoid ReplayRecording's second-resolution filename collisions.
@@ -106,7 +118,7 @@ public final class GolemReplayModule extends Module {
             }
             for (Entity entity : CACHE.getEntityCache().getEntities().values()) track(entity);
         } catch (Exception e) {
-            lastProblem = e.getClass().getSimpleName() + ": recording temporarily suspended; check disk and Zenith log";
+            lastProblem = e.getClass().getSimpleName() + ": " + e.getMessage();
             LOG.error("Snow golem recording suspended", e);
             reset("Recording error: post-event interval interrupted");
             pauseUntil = now + TimeUnit.SECONDS.toNanos(60);
@@ -122,7 +134,7 @@ public final class GolemReplayModule extends Module {
     }
 
     private synchronized void packet(MinecraftPacket packet, ClientSession client, long time, boolean inbound) {
-        if (stopped || !isEnabled() || session != client || buffer.windows.isEmpty()) return;
+        if (stopped || !isEnabled() || session != client || buffer.windows.isEmpty() && testWindow == null) return;
         try {
             // Record before detection, so status/health and the actual death animation are included.
             for (var w : buffer.windows) {
@@ -181,8 +193,8 @@ public final class GolemReplayModule extends Module {
 
     private void capture(Tracked t, long time, String confirmation) {
         var w = buffer.select(time, preNanos());
-        if (w == null) { LOG.warn("Death detected before replay buffer was initialized"); return; }
-        long available = Math.max(0, TimeUnit.NANOSECONDS.toMillis(time - w.start));
+        if (w == null && testWindow == null) { LOG.warn("Death detected before replay buffer was initialized"); return; }
+        long available = w == null ? 0 : Math.max(0, TimeUnit.NANOSECONDS.toMillis(time - w.start));
         List<Incident.Damage> damage = t.damage.stream().filter(d -> time - d.nano <= preNanos()).map(d -> {
             var v = d.data;
             return new Incident.Damage(v.timeUtc(), Math.max(0, TimeUnit.NANOSECONDS.toMillis(time - d.nano)), v.type(), v.typeId(),
@@ -201,7 +213,7 @@ public final class GolemReplayModule extends Module {
         Incident incident = new Incident(UUID.randomUUID().toString(), Instant.now().toString(), ZonedDateTime.now().toString(),
             t.uuid.toString(), t.id, dimension, t.x, t.y, t.z, confirmation, available, available,
             CONFIG.preSeconds, available >= CONFIG.preSeconds * 1000L, damage, circumstances);
-        w.incidents.add(incident);
+        if (w != null) w.incidents.add(incident);
         if (testWindow != null && time <= testWindow.deadline) {
             long testTime = Math.max(0, TimeUnit.NANOSECONDS.toMillis(time - testWindow.start));
             testWindow.incidents.add(new Incident(incident.id(), incident.timeUtc(), incident.timeLocal(), incident.uuid(),
@@ -209,7 +221,7 @@ public final class GolemReplayModule extends Module {
                 testTime, testTime, CONFIG.preSeconds, testTime >= CONFIG.preSeconds * 1000L, incident.recentDamage(), incident.circumstances()));
         }
         // The selected checkpoint advances every rotation, bounding each incident file's life.
-        w.deadline = Math.max(w.deadline, time + TimeUnit.SECONDS.toNanos(CONFIG.postSeconds));
+        if (w != null) w.deadline = Math.max(w.deadline, time + TimeUnit.SECONDS.toNanos(CONFIG.postSeconds));
         LOG.warn("Snow golem event {} at {}, replay marker {}ms", confirmation, incident.timeUtc(), available);
     }
 
@@ -250,34 +262,59 @@ public final class GolemReplayModule extends Module {
             + "; UUID filter=" + (CONFIG.watchedUuids.isEmpty() ? "all" : CONFIG.watchedUuids)
             + (lastProblem.isEmpty() ? "" : "; last issue=" + lastProblem);
     }
-    public synchronized void startTest() {
+    private void checkDisk(long bytes) throws IOException {
+        long free = Files.getFileStore(bufferDirectory.toAbsolutePath()).getUsableSpace();
+        if (free < CONFIG.minFreeDiskMiB * 1024L * 1024)
+            throw new IOException("Free disk: " + free / (1024 * 1024) + " MiB; minimum configured: " + CONFIG.minFreeDiskMiB + " MiB");
+        if (bytes > CONFIG.maxBufferMiB * 1024L * 1024)
+            throw new IOException("Buffer disk: " + bytes / (1024 * 1024) + " MiB; maximum configured: " + CONFIG.maxBufferMiB + " MiB");
+    }
+    public void startTest() {
         ClientSession client = Proxy.getInstance().getClient();
-        if (!isEnabled() || client == null || !client.isOnline() || buffer.windows.isEmpty())
-            throw new IllegalStateException("Activa golemreplay y espera a estar dentro del servidor");
-        if (testWindow != null) throw new IllegalStateException("Ya hay una prueba en curso");
+        if (!isEnabled()) throw new IllegalStateException("El modulo esta desactivado: usa golemreplay on");
+        if (client == null) throw new IllegalStateException("ZenithProxy no esta conectado al servidor");
+        CompletableFuture<Void> started = new CompletableFuture<>();
         client.executeInEventLoop(() -> {
             synchronized (this) {
-                if (testWindow != null || stopped || !isEnabled() || session != client) return;
                 BufferedReplayRecording recording = null;
                 try {
+                    if (stopped) throw new IllegalStateException("El modulo se esta cerrando");
+                    if (!isEnabled()) throw new IllegalStateException("El modulo esta desactivado: usa golemreplay on");
+                    if (!client.isOnline() || client.isInQueue() || Proxy.getInstance().getClient() != client)
+                        throw new IllegalStateException("ZenithProxy debe estar dentro del servidor, fuera de la cola");
+                    if (testWindow != null) throw new IllegalStateException("Ya hay una prueba en curso");
+                    Files.createDirectories(bufferDirectory);
+                    Files.createDirectories(incidentsDirectory);
+                    long bytes;
+                    try (var paths = Files.walk(bufferDirectory)) {
+                        bytes = paths.filter(Files::isRegularFile).mapToLong(p -> p.toFile().length()).sum();
+                    }
+                    checkDisk(bytes);
+                    if (session != client) { reset("New connection"); session = client; }
                     recording = new BufferedReplayRecording(Files.createTempDirectory(bufferDirectory, "test-"));
                     recording.startRecording();
+                    if (!recording.healthy()) throw new IOException(recording.failureDescription());
                     testWindow = new RollingWindows.Window<>(recording.getStartT(), recording);
                     testWindow.deadline = recording.getStartT() + TimeUnit.SECONDS.toNanos(60);
+                    if (pauseUntil > System.nanoTime()) pauseUntil = testWindow.deadline + TimeUnit.SECONDS.toNanos(1);
                     Entity player = CACHE.getPlayerCache().getThePlayer();
                     testWindow.incidents.add(new Incident(UUID.randomUUID().toString(), Instant.now().toString(), ZonedDateTime.now().toString(),
                         player.getUuid().toString(), player.getEntityId(), String.valueOf(CACHE.getChunkCache().getWorldName()),
                         player.getX(), player.getY(), player.getZ(), "MANUAL_TEST", 0, 0, 0, true, List.of(),
                         "60-second forward recording. This marker is the start of the test, not a death."));
                     LOG.info("Started 60-second snow golem recording test");
+                    started.complete(null);
                 } catch (Exception e) {
-                    testWindow = null;
+                    if (recording != null && testWindow != null && testWindow.value == recording) testWindow = null;
                     if (recording != null) try { recording.close(); } catch (Exception ignored) {}
                     LOG.error("Could not start replay test", e);
-                    lastProblem = "Manual test could not start; inspect Zenith log";
+                    lastProblem = e.getClass().getSimpleName() + ": " + e.getMessage();
+                    started.completeExceptionally(e);
                 }
             }
         });
+        try { started.join(); }
+        catch (CompletionException e) { throw new IllegalStateException("No se pudo iniciar la prueba: " + e.getCause().getMessage(), e.getCause()); }
     }
     public synchronized void restartBuffer() {
         if (testWindow != null) throw new IllegalStateException("Espera a que termine la prueba antes de cambiar el buffer");
