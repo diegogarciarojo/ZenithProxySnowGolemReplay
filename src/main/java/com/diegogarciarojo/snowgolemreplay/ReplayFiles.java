@@ -15,11 +15,17 @@ final class ReplayFiles {
         Report report = new Report("snow-golem-replay/1", ending, List.copyOf(incidents));
         var markers = new JsonArray();
         for (Incident event : incidents) {
+            // ReplayMod/ReplayStudio expects this envelope; flat markers make
+            // AbstractReplayFile.getMarkers() dereference value=null.
             var marker = new JsonObject();
-            marker.addProperty("name", "MANUAL_TEST".equals(event.confirmation()) ? "60-second test start" : "Snow golem death: " + event.confirmation());
-            marker.addProperty("time", event.replayTimestampMs());
-            marker.addProperty("x", event.x()); marker.addProperty("y", event.y() + 2); marker.addProperty("z", event.z());
-            marker.addProperty("yaw", 0); marker.addProperty("pitch", 30); marker.addProperty("roll", 0);
+            marker.addProperty("realTimestamp", event.replayTimestampMs());
+            var value = new JsonObject();
+            value.addProperty("name", "MANUAL_TEST".equals(event.confirmation()) ? "60-second test start" : "Snow golem death: " + event.confirmation());
+            var position = new JsonObject();
+            position.addProperty("x", event.x()); position.addProperty("y", event.y() + 2); position.addProperty("z", event.z());
+            position.addProperty("yaw", 0); position.addProperty("pitch", 30); position.addProperty("roll", 0);
+            value.add("position", position);
+            marker.add("value", value);
             markers.add(marker);
         }
         try (ZipFile source = new ZipFile(input.toFile());

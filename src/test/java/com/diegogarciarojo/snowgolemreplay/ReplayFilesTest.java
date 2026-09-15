@@ -27,7 +27,10 @@ class ReplayFilesTest {
             var metadata = JsonParser.parseReader(new InputStreamReader(zip.getInputStream(zip.getEntry("metaData.json")))).getAsJsonObject();
             assertEquals(60000, metadata.get("duration").getAsInt());
             var markers = JsonParser.parseReader(new InputStreamReader(zip.getInputStream(zip.getEntry("markers.json")))).getAsJsonArray();
-            assertEquals(59000, markers.get(0).getAsJsonObject().get("time").getAsInt());
+            var marker = markers.get(0).getAsJsonObject();
+            assertEquals(59000, marker.get("realTimestamp").getAsInt());
+            assertEquals("Snow golem death: ENTITY_STATUS_DEATH", marker.getAsJsonObject("value").get("name").getAsString());
+            assertNotNull(marker.getAsJsonObject("value").getAsJsonObject("position"));
             assertNotNull(zip.getEntry("golem-incident.json"));
             try (var data = new DataInputStream(zip.getInputStream(zip.getEntry("recording.tmcpr")))) {
                 for (int expected : new int[]{0, 1000, 1000, 59000, 60000}) {

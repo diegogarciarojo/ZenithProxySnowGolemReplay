@@ -15,7 +15,7 @@ Usa ReplayMod de Minecraft 1.21.4 para abrir el archivo. La versión interna del
 proxy es lo que importa para el plugin, aunque Zenith use ViaVersion para
 conectarse a otra versión de servidor.
 
-Coloca `ZenithProxySnowGolemReplay-1.0.3.jar` en `plugins/` junto a tus otros plugins
+Coloca `ZenithProxySnowGolemReplay-1.0.4.jar` en `plugins/` junto a tus otros plugins
 y reinicia ZenithProxy. Utiliza una sola copia de este plugin. No sustituye el
 plugin AntiRompedorDeGranjas. No necesita Node.js ni una clave API de file.kiwi.
 
