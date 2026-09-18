@@ -49,4 +49,18 @@ class ReplayFilesTest {
         assertThrows(IOException.class, () -> ReplayFiles.export(source, dir.resolve("out.mcpr"), List.of(), "test", 60000));
         assertFalse(Files.exists(dir.resolve("out.mcpr")));
     }
+    @Test void refusesTruncatedTimestampInsteadOfPublishingAnApparentlyValidReplay() throws Exception {
+        Path source = dir.resolve("truncated.mcpr");
+        try (var zip = new ZipOutputStream(Files.newOutputStream(source))) {
+            zip.putNextEntry(new ZipEntry("metaData.json")); zip.write("{}".getBytes()); zip.closeEntry();
+            zip.putNextEntry(new ZipEntry("recording.tmcpr"));
+            var data = new DataOutputStream(zip);
+            data.writeInt(0); data.writeInt(1); data.writeByte(42);
+            data.write(new byte[]{0, 0, 1});
+            zip.closeEntry();
+        }
+        assertThrows(EOFException.class, () -> ReplayFiles.export(source, dir.resolve("out.mcpr"), List.of(), "test", 60000));
+        assertFalse(Files.exists(dir.resolve("out.mcpr")));
+        assertTrue(Files.exists(source));
+    }
 }

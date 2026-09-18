@@ -1,83 +1,62 @@
-# Validación
+# Validación de SnowGolemReplay 1.1.0
 
-Fecha: 14 de septiembre de 2026 (America/Mexico_City; 15 de septiembre UTC).
+Fecha: **18 de septiembre de 2026**.
 
-## Resultado
+## Resultado de esta entrega
 
-- Compilación con el plugin de desarrollo oficial **1.2.0**, **Gradle 9.7.1**,
-  **JDK 25** y dependencia publicada **ZenithProxy 3.7.0+1.21.4**. Bytecode Java 21.
-- **14 pruebas aprobadas**, incluida una prueba en tiempo real de 77 segundos.
-  La ejecución normal sin `-PrealTimeTest=true` realiza 13 y omite esa prueba larga.
-- Carga del JAR mediante `com.zenith.ProxyLaunchWrapper`: mensajes **Plugin Loaded**
-  para `snow-golem-replay`, versión `1.0.0`, y **ZenithProxy started!**.
-  Proceso aislado, sin cuenta real ni conexión a Minecraft/Discord.
-- Subida real de un archivo de texto sintético sin datos personales mediante
-  `https://api.file.kiwi/v2/folders`, PUT cifrado y verificación de finalización:
-  **FILE_KIWI_LIVE_UPLOAD_VERIFIED**. El estado y enlace de esa prueba se guardaron
-  en el directorio de trabajo, no dentro del paquete distribuido.
+- Compilación con Gradle 9.7.1, JDK 25, plugin de desarrollo oficial 1.2.0
+  y ZenithProxy publicado **3.7.0+1.21.4**. JAR con bytecode Java 21.
+- `build -PrealTimeTest=true --max-workers 2`: **31 pruebas aprobadas**,
+  incluida la grabación de **77 segundos reales**. Sin fallos ni omisiones.
+- Después se añadió una prueba de cabecera truncada; ejecución específica de
+  `ReplayFilesTest`: **3 pruebas aprobadas**. Son **32 casos distintos aprobados**
+  entre ambas ejecuciones, no 34.
+- Carga del JAR de producción con **Java 21.0.11** y
+  `com.zenith.ProxyLaunchWrapper`, usando sólo dependencias publicadas y el JAR
+  en `plugins/`: **Plugin Loaded**, ID `snow-golem-replay`, versión **1.1.0**,
+  y **ZenithProxy started!**.
+- La carga se hizo en un directorio aislado, con servidor entrante, autoconexión,
+  Discord y subidas desactivados, sin credenciales reales. El proceso de prueba
+  se detuvo al terminar.
 
-## Qué comprueban las pruebas
+## Casos verificados
 
-1. Rotaciones, calentamiento, desconexión y muertes repetidas conservan el historial
-   anterior completo cuando ya está disponible.
-2. Paquetes reales de MCProtocolLib de muerte y salud cero generan un único
-   incidente de golem. Un golpe, desaparición o muerte de shulker no lo generan.
-3. Un informe incluye el daño previo, y el replay se lee con el `ReplayReader`
-   de ZenithProxy, incluida la secuencia de login, configuración y mundo.
-4. La prueba manual dura 60 segundos de replay, marca su inicio, cuenta una muerte
-   sin duplicarla y añade la marca de muerte. El test rápido adelanta la condición
-   temporal de cierre; la codificación y exportación usan las clases reales.
-5. Los comandos de configuración se ejecutan con el dispatcher Brigadier real;
-   guardan tiempos, canal y límites, y rechazan un tamaño de búfer inválido.
-6. La prueba temporal completa mantiene el módulo activo **77 segundos** y rota
-   ventanas mientras ocurre un golpe aproximadamente a los 5 s y la muerte a los
-   65 s. El replay exportado y decodificado contiene:
+| Grupo | Casos | Cobertura |
+|---|---:|---|
+| DeliveryQueueTest | 10 | Embed nativo, adjunto, enlace añadido al mismo mensaje, Discord caído, reintento de edición, mensaje eliminado, límite de adjuntos, reanudación tras reinicio, trabajos antiguos, causa y capturas manuales sin muertes inventadas. |
+| GolemModuleIntegrationTest | 11 | Paquetes MCProtocolLib y caché Zenith reales con mundo sintético; muerte/salud cero sin duplicados, otras especies y desaparición, reutilización de ID/UUID, captura manual que conserva paquetes anteriores y dos muertes, prueba de 60 s, disco, comandos y cola de 20.000 paquetes. Incluye la ejecución temporal de 77 s. |
+| KiwiCryptoTest | 2 | Vectores independientes, sales aleatorias y formato de clave del enlace. |
+| KiwiUploaderTest | 3 | API v2 contra servidor HTTP local: firmas y encabezados, reanudación sin repetir partes y rechazo de finalización no confirmada. |
+| ReplayFilesTest | 3 | Metadatos, marcadores anidados, duración, timestamps ordenados y rechazo de contenedor incompleto o cabecera truncada. |
+| RollingWindowsTest | 3 | Historial completo con rotaciones y muertes sucesivas, conservación de ventana de respaldo y reinicio por desconexión. |
 
-   - `[5024] ... event=LIVING_HURT`
-   - `[65005] ... event=LIVING_DEATH`
+La prueba temporal emite un golpe a los cinco segundos y una muerte a los 65.
+El archivo exportado se decodifica con `ReplayReader` de ZenithProxy y su informe
+confirma al menos 60 segundos anteriores. Son datos sintéticos, no una sesión de
+Minecraft ni una prueba en 2b2t.
 
-   El informe confirma al menos 60 segundos anteriores. Los tiempos pueden variar
-   ligeramente al repetirla. Son entidades y paquetes sintéticos en la caché de
-   ZenithProxy, no una sesión en un servidor de Minecraft.
-7. Siete vectores independientes de `wormhole-crypto` 0.3.1 coinciden con el cifrado
-   Java, incluidos límites de registro y contenidos de varios registros.
-8. Un servidor HTTP de prueba verifica API v2, encabezados firmados, orden de
-   fragmentos, reanudación sin repetir fragmentos confirmados y rechazo de un
-   enlace cuando falta confirmación de finalización.
-9. Exportación con marcas e informe, duración exacta de la prueba, timestamps
-   ordenados y rechazo de archivos incompletos.
+Tiempos observados en esta ejecución: golpe **5.041 s**, muerte **65.023 s**.
 
-## Corrección del cierre de replay
+La prueba de carga confirma que el JAR se descubre y registra en ZenithProxy.
+No demuestra, por sí sola, que el bot reciba datos de una granja real.
 
-La implementación publicada de `ReplayRecording.close()` espera al ejecutor
-mientras mantiene el monitor que necesita `writePacket0()`. La prueba de lectura
-del paquete final falló con esa implementación. El adaptador local evita mantener
-ese monitor mientras vacía el ejecutor; con la corrección, la muerte aparece en
-el replay exportado. También limita la cola y propaga errores de serialización.
+## Comprobaciones pendientes en la instalación real
 
-## Pendiente de comprobar en tu instalación
+- Envío y edición efectivos en tu canal de Discord con los permisos de tu bot.
+  Las pruebas nuevas validan la cola y generan embeds reales de Zenith/JDA,
+  usando un transporte simulado para evitar mensajes reales.
+- Reproducción visual en el cliente ReplayMod. Se conserva la corrección del
+  esquema `realTimestamp -> value -> position` y se decodifican los paquetes,
+  pero no se abrió un cliente gráfico de Minecraft.
+- Funcionamiento en tu granja de 2b2t: depende de los chunks, entidades y paquetes
+  de daño que el servidor envíe a la cuenta de Zenith.
+- No se realizó una subida real nueva a file.kiwi en esta entrega. Se contrastó
+  la documentación actual y se verificó el uploader con el servidor HTTP local.
+- Compatibilidad con otras versiones/canales de ZenithProxy. El objetivo probado
+  es **3.7.0+1.21.4**, con ReplayMod de **Minecraft 1.21.4**.
 
-- Entrega efectiva con tu bot, canal y permisos de Discord. No se proporcionó una
-  sesión autenticada para probarla. Se integra con JDA de la versión publicada.
-- Comportamiento en tu granja de 2b2t, incluyendo alcance de entidades y datos que
-  el servidor realmente envía para la causa del daño.
-- Reproducción visual en el cliente ReplayMod. Se comprobó el contenedor, registros,
-  metadatos y decodificación de los paquetes, no una sesión gráfica del cliente.
-- Descarga del archivo a través de la interfaz web de file.kiwi. La subida real fue
-  confirmada por su API y el cifrado se contrastó independientemente con su SDK.
-- Compatibilidad con otros canales o versiones de ZenithProxy; el objetivo es
-  `3.7.0+1.21.4` y no se anuncia compatibilidad binaria universal.
+## Entrega
 
-## Fuentes consultadas
-
-- https://github.com/rfresh2/ZenithProxy
-  (revisión consultada `ef9bc8220423b0557ed7605a1ce85bb8debae483`; compilación y
-  adaptación de replay usan el artefacto publicado 3.7.0+1.21.4).
-- https://github.com/rfresh2/ZenithProxyExamplePlugin
-  (`a23ff491cbadb65bb8a442a217e4fa44ac0ded7e`).
-- https://github.com/diegogarciarojo/ZenithProxyAntiRompedorDeGranjas
-- https://github.com/IceTank/ZenithProxyRedstoneNotify
-- https://file.kiwi/api
-- https://file.kiwi/api/v1
-- https://github.com/file-kiwi/node
-  (`694836977baf85e8c5f6a879a28c1c0a6ca13ec7`).
+El JAR y el código fuente corresponden a **1.1.0**. Los resultados anteriores
+son de validación local; no acreditan el estado de GitHub Actions ni la publicación
+de una release.

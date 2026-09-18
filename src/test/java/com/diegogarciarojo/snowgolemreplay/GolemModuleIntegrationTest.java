@@ -119,6 +119,53 @@ class GolemModuleIntegrationTest {
         var buffer = (RollingWindows<?>)field(GolemReplayModule.class, "buffer").get(module);
         return buffer.windows.stream().mapToInt(w -> w.incidents.size()).sum();
     }
+    @Test void manualClipKeepsEarlierPacketsAndDoesNotConsumeContinuousHistory() throws Exception {
+        receive(new ClientboundEntityEventPacket(1, EntityEvent.LIVING_HURT));
+        module.saveClip();
+        var buffer = (RollingWindows<?>)field(GolemReplayModule.class, "buffer").get(module);
+        var anchor = buffer.windows.getFirst();
+        assertEquals("MANUAL_CLIP", anchor.incidents.getFirst().confirmation());
+        assertFalse(anchor.incidents.getFirst().isDeath());
+        assertFalse(anchor.incidents.getFirst().completePreHistory());
+        receive(new ClientboundEntityEventPacket(1, EntityEvent.LIVING_DEATH));
+        receive(new ClientboundEntityEventPacket(3, EntityEvent.LIVING_DEATH));
+        assertSame(anchor, buffer.windows.getFirst());
+        assertEquals(2, anchor.incidents.stream().filter(Incident::isDeath).count());
+        module.disable(); module.shutdown();
+        try (var files = Files.list(root.resolve("incidents"))) {
+            var replay = files.filter(p -> p.toString().endsWith(".mcpr")).findFirst().orElseThrow();
+            Path log = root.resolve("clip.txt");
+            new ReplayReader(replay.toFile(), log.toFile()).read();
+            String decoded = Files.readString(log);
+            assertTrue(decoded.indexOf("LIVING_HURT") < decoded.indexOf("LIVING_DEATH"));
+            assertEquals(2, decoded.split("LIVING_DEATH", -1).length - 1);
+            try (var zip = new ZipFile(replay.toFile())) {
+                var markers = JsonParser.parseReader(new java.io.InputStreamReader(zip.getInputStream(zip.getEntry("markers.json")))).getAsJsonArray();
+                assertEquals(3, markers.size());
+                assertEquals("Manual clip capture", markers.get(0).getAsJsonObject().getAsJsonObject("value").get("name").getAsString());
+            }
+        }
+    }
+    @Test void reusedIdForAnotherSpeciesCannotTriggerStaleGolemDeath() throws Exception {
+        add(1, EntityType.SHULKER);
+        receive(new ClientboundEntityEventPacket(1, EntityEvent.LIVING_DEATH));
+        assertEquals(0, incidentCount());
+    }
+    @Test void reusedGolemIdGetsFreshIdentityAndDoesNotInheritEarlierDamage() throws Exception {
+        receive(new ClientboundDamageEventPacket(1, 0, 2, 2, null));
+        receive(new ClientboundEntityEventPacket(1, EntityEvent.LIVING_DEATH));
+        add(1, EntityType.SNOW_GOLEM);
+        receive(new ClientboundEntityEventPacket(1, EntityEvent.LIVING_DEATH));
+        var buffer = (RollingWindows<?>)field(GolemReplayModule.class, "buffer").get(module);
+        var incidents = buffer.windows.getFirst().incidents;
+        assertEquals(2, incidents.size());
+        assertNotEquals(incidents.getFirst().uuid(), incidents.getLast().uuid());
+        assertTrue(incidents.getLast().recentDamage().isEmpty());
+    }
+    @Test void manualClipFailsHonestlyWithoutARecordingWindow() {
+        module.restartBuffer();
+        assertThrows(IllegalStateException.class, module::saveClip);
+    }
     @Test void manualTestContainsDeathAndNoDoubleCountAndStopsAtOneMinute() throws Exception {
         module.startTest(); client.getClientEventLoop().submit(() -> {}).get(10, TimeUnit.SECONDS);
         var test = (RollingWindows.Window<?>)field(GolemReplayModule.class, "testWindow").get(module);

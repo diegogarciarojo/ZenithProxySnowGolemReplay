@@ -20,7 +20,11 @@ final class ReplayFiles {
             var marker = new JsonObject();
             marker.addProperty("realTimestamp", event.replayTimestampMs());
             var value = new JsonObject();
-            value.addProperty("name", "MANUAL_TEST".equals(event.confirmation()) ? "60-second test start" : "Snow golem death: " + event.confirmation());
+            value.addProperty("name", switch (event.confirmation()) {
+                case "MANUAL_TEST" -> "60-second test start";
+                case "MANUAL_CLIP" -> "Manual clip capture";
+                default -> "Snow golem death: " + event.confirmation();
+            });
             var position = new JsonObject();
             position.addProperty("x", event.x()); position.addProperty("y", event.y() + 2); position.addProperty("z", event.z());
             position.addProperty("yaw", 0); position.addProperty("pitch", 30); position.addProperty("roll", 0);
@@ -47,8 +51,11 @@ final class ReplayFiles {
                         var target = new DataOutputStream(zip);
                         int previous = 0;
                         while (true) {
-                            int time;
-                            try { time = packets.readInt(); } catch (EOFException e) { break; }
+                            int first = packets.read();
+                            if (first == -1) break;
+                            // Only EOF between packets is valid; 1-3 trailing header bytes are corruption.
+                            int time = first << 24 | packets.readUnsignedByte() << 16 | packets.readUnsignedByte() << 8 | packets.readUnsignedByte();
+                            if (time < 0) throw new IOException("Invalid replay timestamp");
                             int size = packets.readInt();
                             if (size < 1 || size > 64 * 1024 * 1024) throw new IOException("Invalid replay packet length");
                             byte[] data = packets.readNBytes(size);

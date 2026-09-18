@@ -15,7 +15,7 @@ public final class GolemReplayCommand extends Command {
     @Override public CommandUsage commandUsage() {
         return CommandUsage.builder().name("golemreplay").category(CommandCategory.MODULE)
             .description("Replay anterior a la muerte de golems de nieve")
-            .usageLines("on/off", "status", "golems", "test", "retry", "discord on/off", "kiwi on/off", "channel <id|default>",
+            .usageLines("on/off", "status", "golems", "clip", "test", "retry", "discord on/off", "kiwi on/off", "channel <id|default>",
                 "buffer <10..300 seconds>", "post <1..60 seconds>", "checkpoint <10..60 seconds>",
                 "minFreeDisk <64..1048576 MiB>", "maxBufferDisk <64..1048576 MiB>", "watch all|list|add <uuid>|remove <uuid>")
             .build();
@@ -32,6 +32,10 @@ public final class GolemReplayCommand extends Command {
             .then(literal("test").executes(c -> {
                 module.startTest(); c.getSource().getEmbed().title("Prueba de 60 segundos solicitada")
                     .description("Graba desde ahora durante un minuto, cuenta las muertes y despues ejecuta las subidas configuradas.");
+            }))
+            .then(literal("clip").executes(c -> {
+                module.saveClip(); c.getSource().getEmbed().title("Capturando el historial disponible")
+                    .description("Conserva el búfer anterior y el intervalo posterior configurado. No simula una muerte. El embed indicará si el historial está completo.");
             }))
             .then(literal("retry").executes(c -> {
                 module.retryUploads(); c.getSource().getEmbed().title("Reintentando entregas pendientes");

@@ -19,6 +19,9 @@ The following plugins were reviewed for module, configuration and Discord patter
 
 - https://github.com/diegogarciarojo/ZenithProxyAntiRompedorDeGranjas
 - https://github.com/IceTank/ZenithProxyRedstoneNotify (CC0)
+- https://github.com/diegogarciarojo/ZenithProxySnowGolemDeathRecorder
+  (reference for Discord title, colors and field arrangement; the delivery queue,
+  retries, recording and upload implementation remain SnowGolemReplay's).
 
 ## file.kiwi
 

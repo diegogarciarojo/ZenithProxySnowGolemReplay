@@ -15,9 +15,11 @@ Usa ReplayMod de Minecraft 1.21.4 para abrir el archivo. La versión interna del
 proxy es lo que importa para el plugin, aunque Zenith use ViaVersion para
 conectarse a otra versión de servidor.
 
-Coloca `ZenithProxySnowGolemReplay-1.0.4.jar` en `plugins/` junto a tus otros plugins
-y reinicia ZenithProxy. Utiliza una sola copia de este plugin. No sustituye el
-plugin AntiRompedorDeGranjas. No necesita Node.js ni una clave API de file.kiwi.
+Coloca `ZenithProxySnowGolemReplay-1.1.0.jar` en `plugins/` y reinicia ZenithProxy.
+Sustituye la copia anterior de SnowGolemReplay y deja un solo grabador de golems:
+DeathRecorder también registra el alias `golemreplay` y usar ambos duplicaría
+grabación y avisos. AntiRompedorDeGranjas puede permanecer instalado.
+No necesita Node.js ni una clave API de file.kiwi.
 
 El módulo se activa por defecto. Reutiliza el bot y canal de Discord ya configurados
 en ZenithProxy. El bot necesita permiso para enviar mensajes y adjuntar archivos.
@@ -64,6 +66,7 @@ Usa el prefijo configurado en ZenithProxy (por defecto **`.`**). Por ejemplo:
 | `.golemreplay on` / `.golemreplay off` | Activa o desactiva la vigilancia y grabación. |
 | `.golemreplay status` | Estado, historial disponible, configuración y último problema de grabación. |
 | `.golemreplay golems` | UUID y coordenadas de los golems cargados dentro del filtro (hasta 30). |
+| `.golemreplay clip` | Conserva el historial ya grabado y el intervalo posterior; no simula una muerte ni reinicia el búfer. |
 | `.golemreplay test` | Graba **60 segundos desde su activación** y luego hace las entregas configuradas. |
 | `.golemreplay buffer 120` | Guarda al menos 120 segundos anteriores; predeterminado 60, rango 10–300. |
 | `.golemreplay post 10` | Segundos posteriores a la muerte, rango 1–60. |
@@ -86,6 +89,11 @@ reinician el búfer. Durante una prueba, esos cambios se rechazan hasta que term
 `off` puede interrumpirla y conservar la parte disponible.
 
 ## Prueba de un minuto
+
+Para probar la mecánica de guardar el último minuto, espera a tener historial y
+usa `.golemreplay clip`. Mantiene la grabación automática y guarda un marcador
+`MANUAL_CLIP`, que no cuenta como muerte. Si el búfer aún se está calentando, el
+embed informa del historial parcial. Sin una ventana válida, devuelve un error.
 
 Con ZenithProxy dentro del servidor y el módulo activo, ejecuta `.golemreplay test`.
 No necesita esperar a completar el búfer histórico: la prueba graba hacia adelante.
@@ -122,6 +130,20 @@ que envía el servidor. Encontrar muerto un golem al llegar no permite reconstru
 su pasado. El replay es una grabación de datos de Minecraft, no un video MP4.
 
 ## Subidas, almacenamiento y recursos
+
+Las entregas usan `com.zenith.discord.Embed`, el mismo componente de ZenithProxy
+y AntiRompedor. La alerta conserva el formato de DeathRecorder: **Snow Golem Death
+Detected!**, color naranja rojizo, coordenadas y causa en campos contiguos, nombre
+del replay y enlace **File.kiwi Download Link**. El campo de causa muestra el
+último daño observado y aclara que no demuestra por sí solo la causa final.
+Las pruebas y capturas manuales se identifican como tales. Los comandos y avisos
+de estado usan el color principal de ZenithProxy.
+
+Primero se envía el embed con el adjunto. Cuando file.kiwi confirma la subida, se
+edita ese mismo embed para añadir el enlace, conservando el adjunto. El ID del
+mensaje y del canal se guardan para continuar tras reinicios. Si el mensaje fue
+eliminado, se envía otro embed con el enlace. Las entregas pendientes de 1.0.4
+siguen siendo compatibles.
 
 Se intenta primero el adjunto en Discord y también file.kiwi. Si el archivo supera
 el límite del servidor de Discord, se avisa y continúa la subida a file.kiwi.

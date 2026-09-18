@@ -126,8 +126,12 @@ public final class GolemReplayModule extends Module {
     }
 
     private void track(Entity entity) {
-        if (entity == null || entity.getEntityType() != EntityType.SNOW_GOLEM) return;
-        if (!CONFIG.watchedUuids.isEmpty() && !CONFIG.watchedUuids.contains(entity.getUuid().toString())) return;
+        if (entity == null) return;
+        if (entity.getEntityType() != EntityType.SNOW_GOLEM
+            || !CONFIG.watchedUuids.isEmpty() && !CONFIG.watchedUuids.contains(entity.getUuid().toString())) {
+            tracked.remove(entity.getEntityId());
+            return;
+        }
         Tracked old = tracked.get(entity.getEntityId());
         if (old == null || !old.uuid.equals(entity.getUuid())) tracked.put(entity.getEntityId(), new Tracked(entity));
         else old.update(entity);
@@ -249,7 +253,7 @@ public final class GolemReplayModule extends Module {
                     ReplayFiles.export(file, output, w.incidents, ending, endMs);
                     if ("MANUAL_TEST".equals(w.incidents.getFirst().confirmation()))
                         delivery.notifyStatus("Prueba de golemreplay guardada (" + endMs / 1000
-                            + " segundos). Muertes detectadas: " + w.incidents.stream().filter(i -> !"MANUAL_TEST".equals(i.confirmation())).count()
+                            + " segundos). Muertes detectadas: " + w.incidents.stream().filter(Incident::isDeath).count()
                             + ". Se ejecutaran las entregas configuradas a Discord y file.kiwi.");
                     delivery.enqueue(output, w.incidents, ending);
                     LOG.info("Saved snow golem evidence: {}", output);
@@ -280,6 +284,35 @@ public final class GolemReplayModule extends Module {
             throw new IOException("Free disk: " + free / (1024 * 1024) + " MiB; minimum configured: " + CONFIG.minFreeDiskMiB + " MiB");
         if (bytes > CONFIG.maxBufferMiB * 1024L * 1024)
             throw new IOException("Buffer disk: " + bytes / (1024 * 1024) + " MiB; maximum configured: " + CONFIG.maxBufferMiB + " MiB");
+    }
+    public void saveClip() {
+        ClientSession client = Proxy.getInstance().getClient();
+        if (client == null) throw new IllegalStateException("ZenithProxy no está conectado al servidor");
+        CompletableFuture<Void> captured = new CompletableFuture<>();
+        client.executeInEventLoop(() -> {
+            synchronized (this) {
+                try {
+                    if (stopped || !isEnabled()) throw new IllegalStateException("El módulo está desactivado");
+                    if (session != client || !client.isOnline() || client.isInQueue())
+                        throw new IllegalStateException("ZenithProxy debe estar dentro del servidor, fuera de la cola");
+                    long now = System.nanoTime();
+                    var window = buffer.select(now, preNanos());
+                    if (window == null || !window.value.healthy())
+                        throw new IllegalStateException("No hay historial grabado disponible. Consulta golemreplay status");
+                    long available = Math.max(0, TimeUnit.NANOSECONDS.toMillis(now - window.start));
+                    Entity player = CACHE.getPlayerCache().getThePlayer();
+                    window.incidents.add(new Incident(UUID.randomUUID().toString(), Instant.now().toString(), ZonedDateTime.now().toString(),
+                        player.getUuid().toString(), player.getEntityId(), String.valueOf(CACHE.getChunkCache().getWorldName()),
+                        player.getX(), player.getY(), player.getZ(), "MANUAL_CLIP", available, available,
+                        CONFIG.preSeconds, available >= CONFIG.preSeconds * 1000L, List.of(),
+                        "Manual capture of available history. This marker is not a death."));
+                    window.deadline = Math.max(window.deadline, now + TimeUnit.SECONDS.toNanos(CONFIG.postSeconds));
+                    captured.complete(null);
+                } catch (Exception e) { captured.completeExceptionally(e); }
+            }
+        });
+        try { captured.join(); }
+        catch (CompletionException e) { throw new IllegalStateException(e.getCause().getMessage(), e.getCause()); }
     }
     public void startTest() {
         ClientSession client = Proxy.getInstance().getClient();
