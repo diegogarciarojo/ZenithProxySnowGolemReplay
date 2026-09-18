@@ -262,6 +262,42 @@ class GolemModuleIntegrationTest {
             com.zenith.command.api.CommandContext.create("golemreplay buffer 0", source)));
         assertEquals(120, config.preSeconds);
     }
+    @Test void nativeCommandManagerProducesHelpStatusTogglesAndErrors() {
+        boolean blocking = Globals.CONFIG.plugins.blockCommandsUntilLoaded;
+        Globals.CONFIG.plugins.blockCommandsUntilLoaded = false;
+        try {
+            var manager = new com.zenith.command.CommandManager();
+            manager.registerPluginCommand(new GolemReplayCommand(module));
+            var source = new com.zenith.command.api.CommandSource() {
+                public String name() { return "Discord command fixture"; }
+                public String commandPrefix() { return "."; }
+                public boolean validateAccountOwner(com.zenith.command.api.CommandContext c) { return true; }
+                public void logEmbed(com.zenith.command.api.CommandContext c, com.zenith.discord.Embed embed) {}
+            };
+            var help = com.zenith.command.api.CommandContext.create("golemreplay", source);
+            manager.execute(help);
+            assertEquals("Invalid command usage", help.getEmbed().title());
+            assertTrue(help.getEmbed().fields().stream().anyMatch(f -> f.name().equals("Usage") && f.value().contains("clip")));
+            assertEquals(Globals.CONFIG.theme.error.color(), help.getEmbed().color());
+            var status = com.zenith.command.api.CommandContext.create("golemreplay status", source);
+            manager.execute(status);
+            assertEquals("Snow Golem Replay Status", status.getEmbed().title());
+            assertTrue(status.getEmbed().fields().stream().anyMatch(f -> f.name().equals("Available History")));
+            assertEquals(Globals.CONFIG.theme.primary.color(), status.getEmbed().color());
+            var toggle = com.zenith.command.api.CommandContext.create("golemreplay discord off", source);
+            manager.execute(toggle);
+            assertTrue(toggle.getEmbed().title().startsWith("Discord Upload "));
+            assertFalse(SnowGolemReplayPlugin.CONFIG.discordEnabled);
+            var invalid = com.zenith.command.api.CommandContext.create("golemreplay buffer 0", source);
+            manager.execute(invalid);
+            assertEquals("Invalid command usage", invalid.getEmbed().title());
+            module.disable();
+            var failed = com.zenith.command.api.CommandContext.create("golemreplay test", source);
+            manager.execute(failed);
+            assertEquals("Command Execution Error", failed.getEmbed().title());
+            assertTrue(failed.getEmbed().description().contains("Snow Golem Replay is disabled"));
+        } finally { Globals.CONFIG.plugins.blockCommandsUntilLoaded = blocking; }
+    }
     @Test @org.junit.jupiter.api.condition.EnabledIfSystemProperty(named = "golem.realTimeTest", matches = "true")
     void realTimeMinuteBufferSurvivesFourRotationsAndKeepsPreDeathDamage() throws Exception {
         long start = System.nanoTime();

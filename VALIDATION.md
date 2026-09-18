@@ -1,62 +1,47 @@
-# Validación de SnowGolemReplay 1.1.0
+# Validation
 
-Fecha: **18 de septiembre de 2026**.
+## Target
 
-## Resultado de esta entrega
+ZenithProxy **3.7.0+1.21.4**, official plugin development integration **1.2.0**,
+Gradle **9.7.1**, JDK **25** for compilation, and Java **21** bytecode.
+Open recordings with ReplayMod for Minecraft **1.21.4**.
 
-- Compilación con Gradle 9.7.1, JDK 25, plugin de desarrollo oficial 1.2.0
-  y ZenithProxy publicado **3.7.0+1.21.4**. JAR con bytecode Java 21.
-- `build -PrealTimeTest=true --max-workers 2`: **31 pruebas aprobadas**,
-  incluida la grabación de **77 segundos reales**. Sin fallos ni omisiones.
-- Después se añadió una prueba de cabecera truncada; ejecución específica de
-  `ReplayFilesTest`: **3 pruebas aprobadas**. Son **32 casos distintos aprobados**
-  entre ambas ejecuciones, no 34.
-- Carga del JAR de producción con **Java 21.0.11** y
-  `com.zenith.ProxyLaunchWrapper`, usando sólo dependencias publicadas y el JAR
-  en `plugins/`: **Plugin Loaded**, ID `snow-golem-replay`, versión **1.1.0**,
-  y **ZenithProxy started!**.
-- La carga se hizo en un directorio aislado, con servidor entrante, autoconexión,
-  Discord y subidas desactivados, sin credenciales reales. El proceso de prueba
-  se detuvo al terminar.
+## Automated coverage
 
-## Casos verificados
+The suite covers rolling history, repeated deaths, disconnect handling, manual
+recordings, packet serialization, marker compatibility, truncated archives,
+entity ID reuse, disk limits, command settings, native embed generation,
+persistent delivery retries, deleted messages, legacy jobs, and upload limits.
 
-| Grupo | Casos | Cobertura |
-|---|---:|---|
-| DeliveryQueueTest | 10 | Embed nativo, adjunto, enlace añadido al mismo mensaje, Discord caído, reintento de edición, mensaje eliminado, límite de adjuntos, reanudación tras reinicio, trabajos antiguos, causa y capturas manuales sin muertes inventadas. |
-| GolemModuleIntegrationTest | 11 | Paquetes MCProtocolLib y caché Zenith reales con mundo sintético; muerte/salud cero sin duplicados, otras especies y desaparición, reutilización de ID/UUID, captura manual que conserva paquetes anteriores y dos muertes, prueba de 60 s, disco, comandos y cola de 20.000 paquetes. Incluye la ejecución temporal de 77 s. |
-| KiwiCryptoTest | 2 | Vectores independientes, sales aleatorias y formato de clave del enlace. |
-| KiwiUploaderTest | 3 | API v2 contra servidor HTTP local: firmas y encabezados, reanudación sin repetir partes y rechazo de finalización no confirmada. |
-| ReplayFilesTest | 3 | Metadatos, marcadores anidados, duración, timestamps ordenados y rechazo de contenedor incompleto o cabecera truncada. |
-| RollingWindowsTest | 3 | Historial completo con rotaciones y muertes sucesivas, conservación de ventana de respaldo y reinicio por desconexión. |
+file.kiwi tests use a local HTTP server to check API v2 requests, signatures,
+headers, chunk ordering, resumption, and explicit completion confirmation.
+Encryption is checked against independent SDK vectors.
 
-La prueba temporal emite un golpe a los cinco segundos y una muerte a los 65.
-El archivo exportado se decodifica con `ReplayReader` de ZenithProxy y su informe
-confirma al menos 60 segundos anteriores. Son datos sintéticos, no una sesión de
-Minecraft ni una prueba en 2b2t.
+The optional 77-second test uses real ZenithProxy/MCProtocolLib classes with a
+synthetic cached world. It records damage around five seconds and death around
+65 seconds, exports a replay, decodes it with ZenithProxy's ReplayReader, and
+requires at least 60 seconds of pre-death history. It is not a live Minecraft test.
 
-Tiempos observados en esta ejecución: golpe **5.041 s**, muerte **65.023 s**.
+## Validation limits
 
-La prueba de carga confirma que el JAR se descubre y registra en ZenithProxy.
-No demuestra, por sí sola, que el bot reciba datos de una granja real.
+- Discord transport tests generate real Zenith/JDA embeds but do not send messages
+  through the user's bot. Live permissions, appearance, and delivery remain to be
+  checked in that installation.
+- Packet decoding and marker checks do not replace visual playback in ReplayMod.
+- Real 2b2t behavior depends on the chunks, entities, and damage packets delivered
+  to ZenithProxy.
+- No new live file.kiwi upload is performed by the local test suite.
+- Other ZenithProxy versions and release channels are not covered.
 
-## Comprobaciones pendientes en la instalación real
+Version 1.1.0 passed 32 distinct local cases and loaded successfully on Java 21.
+Version **1.1.1** passed **33 tests**, with zero failures, errors, or skips, using
+`gradlew build -PrealTimeTest=true --max-workers 2` on September 18, 2026.
+This includes the 77-second test and native command-manager checks for no-argument
+help, structured status, toggle replies, invalid usage, and execution errors.
+Embed tests also verify the configured error theme color for death alerts.
 
-- Envío y edición efectivos en tu canal de Discord con los permisos de tu bot.
-  Las pruebas nuevas validan la cola y generan embeds reales de Zenith/JDA,
-  usando un transporte simulado para evitar mensajes reales.
-- Reproducción visual en el cliente ReplayMod. Se conserva la corrección del
-  esquema `realTimestamp -> value -> position` y se decodifican los paquetes,
-  pero no se abrió un cliente gráfico de Minecraft.
-- Funcionamiento en tu granja de 2b2t: depende de los chunks, entidades y paquetes
-  de daño que el servidor envíe a la cuenta de Zenith.
-- No se realizó una subida real nueva a file.kiwi en esta entrega. Se contrastó
-  la documentación actual y se verificó el uploader con el servidor HTTP local.
-- Compatibilidad con otras versiones/canales de ZenithProxy. El objetivo probado
-  es **3.7.0+1.21.4**, con ReplayMod de **Minecraft 1.21.4**.
-
-## Entrega
-
-El JAR y el código fuente corresponden a **1.1.0**. Los resultados anteriores
-son de validación local; no acreditan el estado de GitHub Actions ni la publicación
-de una release.
+The production 1.1.1 JAR loaded through `com.zenith.ProxyLaunchWrapper` on
+Java 21.0.11 with published ZenithProxy dependencies: `Plugin Loaded`, version
+`1.1.1`, followed by `ZenithProxy started!`. The isolated smoke process had
+Discord, uploads, automatic connections, and the inbound server disabled and
+was stopped after verification. No user credentials were used.

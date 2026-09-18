@@ -233,8 +233,8 @@ public final class GolemReplayModule extends Module {
     private synchronized void reset(String ending) {
         for (var w : buffer.drain()) finish(w, ending);
         if (testWindow != null) {
-            delivery.notifyStatus("La prueba de golemreplay se interrumpio: " + ending
-                + ". Consulta golemreplay status y el log de ZenithProxy. No se confirma una grabacion completa.");
+            delivery.notifyStatus("Replay test interrupted: " + ending
+                + ". Check golemreplay status and the ZenithProxy log. The recording may be incomplete.");
             finish(testWindow, ending); testWindow = null;
         }
         tracked.clear(); session = null; lastCheckpoint = 0;
@@ -252,9 +252,9 @@ public final class GolemReplayModule extends Module {
                     Path output = incidentsDirectory.resolve("golem-" + w.incidents.getFirst().id() + ".mcpr");
                     ReplayFiles.export(file, output, w.incidents, ending, endMs);
                     if ("MANUAL_TEST".equals(w.incidents.getFirst().confirmation()))
-                        delivery.notifyStatus("Prueba de golemreplay guardada (" + endMs / 1000
-                            + " segundos). Muertes detectadas: " + w.incidents.stream().filter(Incident::isDeath).count()
-                            + ". Se ejecutaran las entregas configuradas a Discord y file.kiwi.");
+                        delivery.notifyStatus("Replay test saved (" + endMs / 1000
+                            + " seconds). Deaths detected: " + w.incidents.stream().filter(Incident::isDeath).count()
+                            + ". Configured Discord and file.kiwi uploads will now run.");
                     delivery.enqueue(output, w.incidents, ending);
                     LOG.info("Saved snow golem evidence: {}", output);
                 }
@@ -262,8 +262,8 @@ public final class GolemReplayModule extends Module {
                 Files.deleteIfExists(file.getParent());
             } catch (Exception e) {
                 LOG.error("Replay finalization failed; keeping buffer files for recovery", e);
-                if (w.pinned()) delivery.notifyStatus("No se pudo finalizar el replay de golemreplay ("
-                    + e.getClass().getSimpleName() + "). Los archivos locales se conservan para diagnostico; revisa el log de ZenithProxy.");
+                if (w.pinned()) delivery.notifyStatus("Failed to finalize the replay ("
+                    + e.getClass().getSimpleName() + "). Local files have been retained for diagnosis. Check the ZenithProxy log.");
             }
         });
     }
@@ -278,6 +278,15 @@ public final class GolemReplayModule extends Module {
             + "; UUID filter=" + (CONFIG.watchedUuids.isEmpty() ? "all" : CONFIG.watchedUuids)
             + (lastProblem.isEmpty() ? "" : "; last issue=" + lastProblem);
     }
+    public synchronized void statusEmbed(com.zenith.discord.Embed embed) {
+        long history = buffer.windows.isEmpty() ? 0 : TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - buffer.windows.getFirst().start);
+        embed.title("Snow Golem Replay Status")
+            .addField("Loaded Golems", tracked.size(), true)
+            .addField("Available History", history + " seconds", true)
+            .addField("Recording Windows", buffer.windows.size(), true)
+            .addField("Manual Test", testWindow == null ? "Not running" : "Recording", true);
+        if (!lastProblem.isEmpty()) embed.addField("Last Recording Issue", lastProblem);
+    }
     private void checkDisk(long bytes) throws IOException {
         long free = Files.getFileStore(bufferDirectory.toAbsolutePath()).getUsableSpace();
         if (free < CONFIG.minFreeDiskMiB * 1024L * 1024)
@@ -287,18 +296,18 @@ public final class GolemReplayModule extends Module {
     }
     public void saveClip() {
         ClientSession client = Proxy.getInstance().getClient();
-        if (client == null) throw new IllegalStateException("ZenithProxy no está conectado al servidor");
+        if (client == null) throw new IllegalStateException("ZenithProxy is not connected to a server");
         CompletableFuture<Void> captured = new CompletableFuture<>();
         client.executeInEventLoop(() -> {
             synchronized (this) {
                 try {
-                    if (stopped || !isEnabled()) throw new IllegalStateException("El módulo está desactivado");
+                    if (stopped || !isEnabled()) throw new IllegalStateException("Snow Golem Replay is disabled");
                     if (session != client || !client.isOnline() || client.isInQueue())
-                        throw new IllegalStateException("ZenithProxy debe estar dentro del servidor, fuera de la cola");
+                        throw new IllegalStateException("ZenithProxy must be online and outside the queue");
                     long now = System.nanoTime();
                     var window = buffer.select(now, preNanos());
                     if (window == null || !window.value.healthy())
-                        throw new IllegalStateException("No hay historial grabado disponible. Consulta golemreplay status");
+                        throw new IllegalStateException("No recorded history is available. Check golemreplay status");
                     long available = Math.max(0, TimeUnit.NANOSECONDS.toMillis(now - window.start));
                     Entity player = CACHE.getPlayerCache().getThePlayer();
                     window.incidents.add(new Incident(UUID.randomUUID().toString(), Instant.now().toString(), ZonedDateTime.now().toString(),
@@ -316,18 +325,18 @@ public final class GolemReplayModule extends Module {
     }
     public void startTest() {
         ClientSession client = Proxy.getInstance().getClient();
-        if (!isEnabled()) throw new IllegalStateException("El modulo esta desactivado: usa golemreplay on");
-        if (client == null) throw new IllegalStateException("ZenithProxy no esta conectado al servidor");
+        if (!isEnabled()) throw new IllegalStateException("Snow Golem Replay is disabled. Use golemreplay on");
+        if (client == null) throw new IllegalStateException("ZenithProxy is not connected to a server");
         CompletableFuture<Void> started = new CompletableFuture<>();
         client.executeInEventLoop(() -> {
             synchronized (this) {
                 BufferedReplayRecording recording = null;
                 try {
-                    if (stopped) throw new IllegalStateException("El modulo se esta cerrando");
-                    if (!isEnabled()) throw new IllegalStateException("El modulo esta desactivado: usa golemreplay on");
+                    if (stopped) throw new IllegalStateException("Snow Golem Replay is shutting down");
+                    if (!isEnabled()) throw new IllegalStateException("Snow Golem Replay is disabled. Use golemreplay on");
                     if (!client.isOnline() || client.isInQueue() || Proxy.getInstance().getClient() != client)
-                        throw new IllegalStateException("ZenithProxy debe estar dentro del servidor, fuera de la cola");
-                    if (testWindow != null) throw new IllegalStateException("Ya hay una prueba en curso");
+                        throw new IllegalStateException("ZenithProxy must be online and outside the queue");
+                    if (testWindow != null) throw new IllegalStateException("A replay test is already running");
                     Files.createDirectories(bufferDirectory);
                     Files.createDirectories(incidentsDirectory);
                     long bytes;
@@ -359,16 +368,16 @@ public final class GolemReplayModule extends Module {
             }
         });
         try { started.join(); }
-        catch (CompletionException e) { throw new IllegalStateException("No se pudo iniciar la prueba: " + e.getCause().getMessage(), e.getCause()); }
+        catch (CompletionException e) { throw new IllegalStateException("Failed to start replay test: " + e.getCause().getMessage(), e.getCause()); }
     }
     public synchronized void restartBuffer() {
-        if (testWindow != null) throw new IllegalStateException("Espera a que termine la prueba antes de cambiar el buffer");
+        if (testWindow != null) throw new IllegalStateException("Wait for the replay test to finish before changing buffer settings");
         CONFIG.validate(); reset("Settings changed: buffer restarted");
     }
     public void retryUploads() { delivery.retry(); }
     public synchronized String loadedGolems() {
-        return tracked.isEmpty() ? "No hay golems cargados dentro del filtro de vigilancia" : tracked.values().stream().limit(30)
-            .map(t -> t.uuid + " | " + (int)t.x + ", " + (int)t.y + ", " + (int)t.z + (t.dead ? " | muerto" : ""))
+        return tracked.isEmpty() ? "No loaded snow golems match the watch filter" : tracked.values().stream().limit(30)
+            .map(t -> t.uuid + " | " + (int)t.x + ", " + (int)t.y + ", " + (int)t.z + (t.dead ? " | dead" : ""))
             .collect(java.util.stream.Collectors.joining("\n"));
     }
     public void shutdown() {

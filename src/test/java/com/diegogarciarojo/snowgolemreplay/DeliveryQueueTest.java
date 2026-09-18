@@ -71,6 +71,7 @@ class DeliveryQueueTest {
         assertEquals(1, discord.sends); assertEquals(1, discord.edits); assertEquals(1, uploads);
         assertEquals(replay, discord.attachment);
         assertEquals("Snow Golem Death Detected!", discord.sent.title());
+        assertEquals(com.zenith.Globals.CONFIG.theme.error.color(), discord.sent.color());
         assertTrue(discord.sent.fields().get(0).inline()); assertTrue(discord.sent.fields().get(1).inline());
         assertFalse(discord.sent.fields().stream().anyMatch(f -> f.name().contains("kiwi")));
         assertTrue(field(discord.edited, "File.kiwi Download Link").contains(LINK));
@@ -112,7 +113,7 @@ class DeliveryQueueTest {
     @Test void oversizedReplayStillGetsEmbedAndVerifiedLink() throws Exception {
         discord.limit = 5; queue.deliver(jobFile);
         assertNull(discord.attachment); assertTrue(job().attachmentDone && job().linkDone);
-        assertTrue(field(discord.edited, "Discord Attachment").contains("límite"));
+        assertTrue(field(discord.edited, "Discord Attachment").contains("limit"));
     }
     @Test void oldTextOnlyJobRecoversIncidentReport() throws Exception {
         Files.writeString(jobFile, "{\"filename\":\"fixture.mcpr\",\"summary\":\"old text\"}");
@@ -125,13 +126,13 @@ class DeliveryQueueTest {
     @Test void legacyJobWithoutReportStillGetsAnEmbed() throws Exception {
         Files.writeString(jobFile, "{\"filename\":\"fixture.mcpr\",\"summary\":\"old text\"}");
         queue.deliver(jobFile);
-        assertEquals("old text", discord.sent.description()); assertTrue(job().linkDone);
+        assertEquals("A saved replay is ready for delivery. Incident details are unavailable.", discord.sent.description()); assertTrue(job().linkDone);
     }
     @Test void testAndClipDoNotInventADeathOrCause() {
         for (String kind : List.of("MANUAL_TEST", "MANUAL_CLIP")) {
             var embed = DiscordMessages.replay("test.mcpr", List.of(RollingWindowsTest.event(kind)), "Post-event interval completed", "", "", "");
             assertFalse(embed.title().contains("Death Detected"));
-            assertTrue(embed.description().contains("Muertes detectadas: 0"));
+            assertTrue(embed.description().contains("Deaths detected: 0"));
             assertFalse(embed.fields().stream().anyMatch(f -> f.name().equals("Cause of Death")));
         }
     }
@@ -143,7 +144,7 @@ class DeliveryQueueTest {
             base.x(), base.y(), base.z(), base.confirmation(), base.replayTimestampMs(), base.availablePreMs(),
             base.requestedPreSeconds(), true, List.of(damage), "test");
         var embed = DiscordMessages.replay("test.mcpr", Collections.nCopies(100, incident), "Post-event interval completed", LINK, "", "");
-        assertTrue(field(embed, "Cause of Death").contains("Causa final sin confirmar"));
+        assertTrue(field(embed, "Cause of Death").contains("Final cause unconfirmed"));
         assertTrue(field(embed, "Cause of Death").contains("SHULKER_BULLET"));
         assertTrue(Embed.validateEmbed(embed)); assertNotNull(embed.toJDAEmbed());
     }
